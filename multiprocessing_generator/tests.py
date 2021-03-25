@@ -9,6 +9,7 @@ import datetime
 import time
 import itertools
 import sys
+import queue, multiprocessing
 
 class ParallelGeneratorTest(unittest.TestCase):
     def test_bad_init(self):
@@ -16,7 +17,7 @@ class ParallelGeneratorTest(unittest.TestCase):
         The generator cannot be used without
         invoking __enter__ via a with block
         """
-        l = [1,2]
+        l = [1,2] 
         with self.assertRaises(ParallelGeneratorException):
             pl = list(ParallelGenerator(l))
 
@@ -96,4 +97,81 @@ class ParallelGeneratorTest(unittest.TestCase):
 
         time.sleep(1)
         self.assertFalse(process.is_alive())
-
+    def test_multiple_enter(self):
+        """
+        """
+        result = []
+        with ParallelGenerator((I for I in range(10)), max_lookahead = 2) as pg1:
+            with ParallelGenerator(I for I in pg1) as pg2:
+                for I in pg2:
+                    result.append(I)
+        
+        self.assertTrue(result == [0,1,2,3,4,5,6,7,8,9])
+    def test_multiple_enter2(self):
+        """
+        """
+        result = []
+        ANS = []
+        with ParallelGenerator(I for I in range(10)) as pg1:
+            with ParallelGenerator(range(I) for I in pg1) as pg2:
+                for I in pg2:
+                    with ParallelGenerator((J for J in I), max_lookahead = 2) as pg3:
+                        for K in pg3:
+                            result.append(K)
+        pg1 = (I for I in range(10))
+        pg2 = (range(I) for I in pg1)
+        for I in pg2:
+            pg3 = (J for J in I)
+            for K in pg3:
+                ANS.append(K)
+        self.assertTrue(result == ANS)
+    def test_multiple_enter_timeout(self):
+        """
+        allow processing time < 0.01
+        """
+        def waiting(X):
+            time.sleep(0.089)
+            return X
+        result = []
+        with ParallelGenerator((waiting(I) for I in range(10)), max_lookahead = 2, get_timeout = 0.1) as pg1:
+            with ParallelGenerator(I for I in pg1) as pg2:
+                for I in pg2:
+                    result.append(I)
+        
+        self.assertTrue(result == [0,1,2,3,4,5,6,7,8,9])
+    def test_use_at_different_process(self):
+        """
+        allow processing time < 0.01
+        """
+        Q = queue.Queue()
+        def user(Qu):
+            Q = Qu.get()
+            with Q as Gen:
+                for I in Gen:Qu.put(I)
+        ANS = list(range(20))
+        result = []
+        X = ParallelGenerator(I for I in range(20))
+        Q.put(X)
+        P = multiprocessing.Process(target = user, args=(Q,))
+        P.start()
+        while 1:
+            try: result.append(Q.get(0.1))
+            except:break
+        P.join()
+        P.close()
+        self.assertTrue(result == ANS)
+    """
+    def test_reuseable(self):
+        ANS = list(range(20))
+        result = []
+        X = ParallelGenerator(I for I in range(20))
+        X.__enter__()
+        for I,J in zip(range(10), X):
+            result.append(J)
+        X.__exit__(1,1,1)
+        with X as Xx:
+            for I,J in zip(range(10), Xx):
+                result.append(J)
+        
+        self.assertTrue(result == ANS)
+    """

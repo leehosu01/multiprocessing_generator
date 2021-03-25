@@ -1,7 +1,7 @@
 # -*- encoding: utf-8 -*-
 from __future__ import unicode_literals
 
-import sys
+import sys, os 
 if sys.version_info[0] < 3:
     from Queue import Empty
 else:
@@ -52,13 +52,21 @@ class ParallelGenerator(object):
 
         self.get_timeout = get_timeout
 
+        self.ppid = None
         self.process = Process(target=wrapped)
         self.process_started = False
-
+    def finish_if_possible(self):
+        if self.ppid == os.getpid() and self.process and self.process.is_alive():
+            self.process.terminate()
+            self.process = None
+            self.queue = None
+            self.ppid = None
     def __enter__(self):
         """
         Starts the process
         """
+        assert self.ppid == None
+        self.ppid = os.getpid()
         self.process.start()
         self.process_started = True
         return self
@@ -67,9 +75,8 @@ class ParallelGenerator(object):
         """
         Kills the process
         """
-        if self.process and self.process.is_alive():
-            self.process.terminate()
-
+        assert self.process_started and self.ppid == None or self.ppid == os.getpid()
+        self.finish_if_possible()
     def __next__(self):
         return self.next()
 
@@ -99,10 +106,7 @@ class ParallelGenerator(object):
             return item
 
         except Exception:
-            self.queue = None
-            if self.process.is_alive():
-                self.process.terminate()
-            self.process = None
+            self.finish_if_possible()
             raise
 
 
