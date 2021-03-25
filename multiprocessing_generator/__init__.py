@@ -46,7 +46,7 @@ class ParallelGenerator(object):
             try:
                 for item in orig_gen:
                     self.queue.put(item)
-                raise StopIteration()
+                self.queue.put(ExceptionItem(StopIteration))
             except Exception as e:
                 self.queue.put(ExceptionItem(e))
 
@@ -98,10 +98,16 @@ class ParallelGenerator(object):
                 raise item.exception
             return item
 
+        except StopIteration:
+            self.queue = None
+            #if self.process.is_alive(): 
+            self.process.terminate()
+            self.process = None
+            raise
         except Exception:
             self.queue = None
-            if self.process.is_alive():
-                self.process.terminate()
+            #if self.process.is_alive(): 
+            self.process.terminate()
             self.process = None
             raise
 
